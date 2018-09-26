@@ -1,8 +1,11 @@
 #include <fxcg/display.h>
 #include <fxcg/keyboard.h>
 #include <fxcg/serial.h>
+#include <fxcg/system.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+//#include <color.h>
 
 int keyGetter(){
 	unsigned char buffer[12];
@@ -72,29 +75,66 @@ int main() {
 		switch (key) {
 			
 			case KEY_PRGM_F1:
-				Bdisp_AllClr_VRAM();
+				Bdisp_Fill_VRAM(COLOR_WHITE, 1);
 				locate_OS(1,1);
-				unsigned char message[15];
+				char message[50];
 				int i = 0;
 				int typeKey;
 				GetKey(&typeKey);
-				while(typeKey != KEY_CTRL_F2 && i < 13){
-					if(typeKey != KEY_CTRL_F1 && typeKey != KEY_CTRL_ALPHA && typeKey != KEY_CTRL_SHIFT && typeKey != KEY_CTRL_F2 && typeKey != KEY_CTRL_LEFT){
+				
+				while(typeKey != KEY_CTRL_F2 && i < 50){
 					
-						message[i] = typeKey;
-						i++;
+					switch(typeKey){
+						case KEY_CTRL_F3:
+							if(GetSetupSetting((unsigned int)0x14) == 0x88 ){
+								SetSetupSetting((unsigned int)0x14, 0x84);
+							}
+							if(GetSetupSetting((unsigned int)0x14) == 0x84 ){
+								SetSetupSetting((unsigned int)0x14, 0x88);
+							}
+							break;
 						
-						char p[2];
-						p[0] = typeKey;
-						p[1] = '\0'; 
-						const char * printer = p;
-						Print_OS(printer, 0, 0);
+						case KEY_CTRL_F4:
+							{
+								char entree = CharacterSelectDialog();
+								if(entree != 0){
+									message[i] = entree;
+									i++;
+								}
+								break;
+							}
+						case KEY_CTRL_LEFT:
+							message[i] = '\0';
+							i--;
+							break;
+
+						case KEY_CTRL_VARS:
+							message[i] = ':';
+							i++;
+							break;
+						
+						case KEY_CTRL_OPTN:
+							message[i] = '+';
+							i++;
+							break;
+						
+						default:
+						
+							if(typeKey != KEY_CTRL_F1 && typeKey != KEY_CTRL_ALPHA && typeKey != KEY_CTRL_SHIFT){
+						
+								message[i] = typeKey;
+								i++;
+							
+							}
+							break;
+							
 					}
-					if(typeKey == KEY_SHIFT_LEFT){
-						message[i] = '\0';
-						i--;
-						locate_OS(1 + i,1);
-					}
+					Bdisp_Fill_VRAM(COLOR_WHITE, 1);
+					char buffer[52];
+					strcpy(buffer,"  ");
+					strcpy(buffer+2,message);
+					
+					PrintXY( 1, 2, buffer, TEXT_MODE_NORMAL, TEXT_COLOR_BLACK);
 					
 					GetKey(&typeKey);
 					
@@ -102,8 +142,10 @@ int main() {
 				i++;
 				message[i] = '\n';
 				const unsigned char * messageN = message;
+				Serial_ClearTX();
 				Serial_Write(messageN, i);
-				Bdisp_AllClr_VRAM();
+				memset(message, 0, sizeof message);
+				Bdisp_Fill_VRAM(COLOR_WHITE, 1);
 				locate_OS(1,1);
 				break;
 			
@@ -117,7 +159,7 @@ int main() {
 				break;
 			
 			default :  
-				Serial_WriteSingle((unsigned char)key);
+				//Serial_WriteSingle((unsigned char)key);
 				break;
 		}
 
