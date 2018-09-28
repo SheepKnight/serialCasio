@@ -75,9 +75,12 @@ int main() {
 		switch (key) {
 			
 			case KEY_PRGM_F1:
+			{
+				
 				Bdisp_Fill_VRAM(COLOR_WHITE, 1);
 				locate_OS(1,1);
 				char message[50];
+				memset(message, 0, sizeof message);
 				int i = 0;
 				int typeKey;
 				GetKey(&typeKey);
@@ -148,7 +151,7 @@ int main() {
 				Bdisp_Fill_VRAM(COLOR_WHITE, 1);
 				locate_OS(1,1);
 				break;
-			
+			}
 			case KEY_PRGM_MENU:
 				shouldStop = 0;
 				Serial_Close(1);
@@ -161,6 +164,7 @@ int main() {
 			default :  
 				//Serial_WriteSingle((unsigned char)key);
 				break;
+			
 		}
 
 		Bdisp_PutDisp_DD();
