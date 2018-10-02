@@ -10,13 +10,37 @@
 //If you do not have a TFT Screen wired to your ESP, comment this next line.
 #define debugScreen;
 
-#include "BluetoothSerial.h"
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <BLE2902.h>
 
-#if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
-#error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
-#endif
+BLEServer *pServer = NULL;
+BLECharacteristic * pTxCharacteristic;
+bool deviceConnected = false;
+bool oldDeviceConnected = false;
+uint8_t txValue = 0;
 
-BluetoothSerial SerialBT;
+bool BLEUartStarted = false;
+
+// See the following for generating UUIDs:
+// https://www.uuidgenerator.net/
+
+#define SERVICE_UUID           "6E400001-B5A3-F393-E0A9-E50E24DCCA9E" // UART service UUID
+#define CHARACTERISTIC_UUID_RX "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
+#define CHARACTERISTIC_UUID_TX "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
+
+
+class MyServerCallbacks: public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) {
+      deviceConnected = true;
+    };
+
+    void onDisconnect(BLEServer* pServer) {
+      deviceConnected = false;
+    }
+};
+
 
 #ifdef debugScreen
 
@@ -29,11 +53,36 @@ TFT_eSPI tft = TFT_eSPI();
 HardwareSerial espSerial(2); // RX, TX, configured in the ESP32 HardwareSerial.cpp library.
 
 
+void sendToCasio(String entree) {
+  espSerial.println(entree);
+#ifdef debugScreen
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextFont(2);
+  tft.println(entree);
+#endif /* debugScreen */
+}
+class MyCallbacks: public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *pCharacteristic) {
+      std::string rxValue = pCharacteristic->getValue();
+
+      if(rxValue.length() > 0){
+        String bufferInput;
+        for (int i = 0; i < rxValue.length(); i++){
+          bufferInput = bufferInput + char(rxValue[i]);
+          Serial.print(rxValue[i]);
+        }        
+        sendToCasio(bufferInput);
+      }
+    }
+};
+
+
 char ssidAP[50];
 char pwdAP[50];
 char ssidWifi[50];
 char pwdWifi[50];
 
+int dumpStream = 0;
 
 #define ATMaxCMD 50
 
@@ -45,6 +94,36 @@ void registerAT(const char * ATname, void (* command)(String parameter)) {
   ATCommands[nbrOfAT] = command;
   ATNames[nbrOfAT] = String(ATname);
   nbrOfAT++;
+}
+
+void ATBLEUARTBegin(String UARTName){
+  // Create the BLE Device
+  BLEDevice::init("UART Service");
+
+  // Create the BLE Server
+  pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new MyServerCallbacks());
+
+  // Create the BLE Service
+  BLEService *pService = pServer->createService(SERVICE_UUID);
+
+  // Create a BLE Characteristic
+  pTxCharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID_TX, BLECharacteristic::PROPERTY_NOTIFY);
+                      
+  pTxCharacteristic->addDescriptor(new BLE2902());
+
+  BLECharacteristic * pRxCharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID_RX, BLECharacteristic::PROPERTY_WRITE);
+
+  pRxCharacteristic->setCallbacks(new MyCallbacks());
+
+  // Start the service
+  pService->start();
+
+  // Start advertising
+  pServer->getAdvertising()->start();
+  BLEUartStarted = true;
+  sendToCasio("OK");
+  Serial.println("Sucessfully started BLE Uart");
 }
 
 void ATWifiSSID(String ssid) {
@@ -174,7 +253,15 @@ void ATSetAPSSID(String ssid) {
 }
 
 void ATSetStream(String streamMode) {
-
+  if(streamMode == "BLEUartServer"){
+    dumpStream = 1;
+    sendToCasio("OK");
+    Serial.println("Stream is now BLE.");
+  }else{
+    dumpStream = 0;
+    sendToCasio("-1");
+  }
+  
 }
 
 void setup() {
@@ -199,7 +286,7 @@ void setup() {
   ledcAttachPin(12, channel);
 
   delay(500);
-
+  
   Serial.println("");
   Serial.println("--------------------------------");
 
@@ -212,6 +299,9 @@ void setup() {
   registerAT("WIFIBEGIN", ATConnectToWifi);
   registerAT("HTTP", ATHTTP);
   registerAT("GETIP", ATGETIP);
+  registerAT("SETSTREAM", ATSetStream);
+  registerAT("BLEUARTBEGIN", ATBLEUARTBegin);
+  
   Serial.print("There are ");
   Serial.print(nbrOfAT);
   Serial.println(" AT commands.");
@@ -258,6 +348,14 @@ void loop() {
   if (espSerial.available()) {
     int input = espSerial.read();
     Serial.println(input);
+    if(dumpStream == 1){
+      if(pTxCharacteristic != NULL ){
+        uint8_t toTransmit = (uint8_t)input;
+        Serial.println("BLE IS NICE : "+ toTransmit);
+        pTxCharacteristic->setValue(&toTransmit, 1);
+        pTxCharacteristic->notify();
+      }
+    }
     if (input != 13 /*New line*/ && input != 59 /*;*/ && input != 0 /*\0*/) {
       inputAT = inputAT + char(input);
     } else {
@@ -270,12 +368,26 @@ void loop() {
       Serial.println("Cleared buffer.");
       inputAT = "";
     }
+    
     transmitSerial1(input);
   }
 
   if (Serial.available()) {
     int input = Serial.read();
     transmitSerial2(input);
+  }
+  if(BLEUartStarted == true){
+    if (!deviceConnected && oldDeviceConnected) {
+        delay(500); // give the bluetooth stack the chance to get things ready
+        pServer->startAdvertising(); // restart advertising
+        Serial.println("start advertising");
+        oldDeviceConnected = deviceConnected;
+    }
+    // connecting
+    if (deviceConnected && !oldDeviceConnected) {
+    // do stuff here on connecting
+        oldDeviceConnected = deviceConnected;
+    }
   }
 }
 
@@ -297,14 +409,4 @@ void transmitSerial2(int input) {
 #endif /* debugScreen */+
 }
 
-void sendToCasio(String entree) {
-  espSerial.println(entree);
-#ifdef debugScreen
-  tft.setTextColor(TFT_WHITE);
-  tft.setTextFont(2);
-  tft.println(entree);
-#endif /* debugScreen */+
-
-
-}
 
