@@ -75,6 +75,30 @@ class MyCallbacks: public BLECharacteristicCallbacks {
       }
     }
 };
+BLEAdvertisedDevice scannedBLE[32];
+int scanIndex = 0;
+class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
+ /**
+   * Called for each advertising BLE server.
+   */
+  void onResult(BLEAdvertisedDevice advertisedDevice) {
+    Serial.print("BLE Advertised Device found: ");
+    Serial.println(advertisedDevice.toString().c_str());
+    scannedBLE[scanIndex]= advertisedDevice;
+    scanIndex++;
+    // We have found a device, let us now see if it contains the service we are looking for.
+    if (advertisedDevice.haveServiceUUID() && advertisedDevice.getServiceUUID().equals(BLEUUID(SERVICE_UUID))) {
+
+      // 
+      Serial.print("Found our device!  address: "); 
+      //advertisedDevice.getScan()->stop();
+
+      //pServerAddress = new BLEAddress(advertisedDevice.getAddress());
+      //doConnect = true;
+
+    } // Found our server
+  } // onResult
+}; // MyAdvertisedDeviceCallbacks
 
 
 char ssidAP[50];
@@ -98,7 +122,10 @@ void registerAT(const char * ATname, void (* command)(String parameter)) {
 
 void ATBLEUARTBegin(String UARTName){
   // Create the BLE Device
-  BLEDevice::init("UART Service");
+  //char * newName;
+  //UARTName.toCharArray(newName, UARTName.length() + 1);
+  //const char * finalName = newName;
+  BLEDevice::init(UARTName.c_str());
 
   // Create the BLE Server
   pServer = BLEDevice::createServer();
@@ -120,10 +147,24 @@ void ATBLEUARTBegin(String UARTName){
   pService->start();
 
   // Start advertising
+  
+  //pServer->getAdvertising()->setAppearance(0b0000001111000101);
+  //Serial.println(pServer->getAdvertising()->getServiceUUID());
+  //pServer->getAdvertising()->addServiceUUID(BLEUUID(SERVICE_UUID));
   pServer->getAdvertising()->start();
   BLEUartStarted = true;
   sendToCasio("OK");
   Serial.println("Sucessfully started BLE Uart");
+}
+
+void ATGetStatus(String parameter){
+  if(parameter== "BLE"){
+    sendToCasio(String('{'+BLEUartStarted+','+deviceConnected+'}'));
+  }else if(parameter == "WIFI"){
+    sendToCasio(String('{'+WiFi.status()+','+WiFi.localIP().toString()+'}'));
+  }else{
+    sendToCasio(String('{'+BLEUartStarted+','+deviceConnected+','+WiFi.status()+','+WiFi.localIP().toString()+'}'));
+  }
 }
 
 void ATWifiSSID(String ssid) {
@@ -252,6 +293,15 @@ void ATSetAPSSID(String ssid) {
   sendToCasio("OK");
 }
 
+void ATBLEScan(String filter){
+  BLEDevice::init("");
+  BLEScan* pBLEScan = BLEDevice::getScan();
+  pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
+  pBLEScan->setActiveScan(true);
+  pBLEScan->start(32);
+  
+}
+
 void ATSetStream(String streamMode) {
   if(streamMode == "BLEUartServer"){
     dumpStream = 1;
@@ -301,6 +351,8 @@ void setup() {
   registerAT("GETIP", ATGETIP);
   registerAT("SETSTREAM", ATSetStream);
   registerAT("BLEUARTBEGIN", ATBLEUARTBegin);
+  registerAT("STATUS", ATGetStatus);
+  registerAT("BLESCAN", ATBLEScan);
   
   Serial.print("There are ");
   Serial.print(nbrOfAT);
