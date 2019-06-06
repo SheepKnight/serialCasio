@@ -13,16 +13,85 @@ int keyGetter(){
 	return ( buffer[1] & 0x0F ) * 10 + ( ( buffer[2]  & 0xF0 )  >> 4 );
 }
 
-int main() {
-	
-	
+int inputTxt(char * message){
+	locate_OS(1,1);
+				
+	int i = 0;
+	int typeKey;
+	GetKey(&typeKey);
+	while(typeKey != KEY_CTRL_F2 && i < 50){
+					
+		switch(typeKey){
+			case KEY_CTRL_F3:
+				if(GetSetupSetting((unsigned int)0x14) == 0x88 ){
+					SetSetupSetting((unsigned int)0x14, 0x84);
+				}
+				if(GetSetupSetting((unsigned int)0x14) == 0x84 ){
+					SetSetupSetting((unsigned int)0x14, 0x88);
+				}
+				break;
+			case KEY_CTRL_F4:{
+				char entree = CharacterSelectDialog();
+				if(entree != 0){
+					message[i] = entree;
+					i++;
+				}
+				break;
+			}
+			case KEY_CTRL_LEFT:
+				message[i] = '\0';
+				i--;
+				break;
+
+			case KEY_CTRL_VARS:
+				message[i] = ':';
+				i++;
+				break;
+						
+			case KEY_CTRL_OPTN:
+				message[i] = '+';
+				i++;
+				break;
+						
+			default:
+			if(typeKey != KEY_CTRL_F1 && typeKey != KEY_CTRL_ALPHA && typeKey != KEY_CTRL_SHIFT){
+				
+				message[i] = typeKey;
+				i++;				
+			}
+			break;							
+		}
+		Bdisp_Fill_VRAM(COLOR_WHITE, 1);
+		char buffer[52];
+		strcpy(buffer,"  ");
+		strcpy(buffer+2,message);
+		PrintXY( 1, 2, buffer, TEXT_MODE_NORMAL, TEXT_COLOR_BLACK);	
+		GetKey(&typeKey);			
+	}
+	return(i);
+}
+
+void openSerial(int speed = 5){
+
 	if (Serial_IsOpen() != 1) {
-		unsigned char mode[6] = {0, 5, 0, 0, 0, 0};    // 9600 bps 8n1
+		unsigned char mode[6] = {0, speed, 0, 0, 0, 0};    // 9600 bps 8n1
 		Serial_Open(mode);
 		Serial_ClearRX();
 		Serial_ClearTX();
 	}
 	
+}
+void clearScreen(){
+	Bdisp_Fill_VRAM(COLOR_WHITE, 1);
+	char buffer[15] = "  Baud: ";
+	sprintf(buffer+8,"%ld", baudRate);
+	PrintXY( 1, 7, buffer, TEXT_MODE_NORMAL, TEXT_COLOR_BLUE );
+				
+}
+int baudRate = 9600;
+	
+int main() {
+	openSerial(5);
 	int shouldStop = 0;
 	
 	Bdisp_AllClr_VRAM();
@@ -35,28 +104,20 @@ int main() {
         unsigned char in;
 		int status = Serial_ReadSingle(&in);
 		while(status==0){
-			
-			//Serial_WriteSingle(in);
 			if(in == '\n'){
-			
 				y++;
 				locate_OS(1,y);
-			
 			}else{
-				
 				x++;
 				if(x==21){
-				
 					x = 1;
 					y++;
 					if(y== 8){
 					
 						y = 1;
 						x = 1;
-						
 					}
 					locate_OS(1,y);
-				
 				}
 				char p[2];
 				p[0] = in;
@@ -68,7 +129,6 @@ int main() {
 			Bdisp_PutDisp_DD();
 			status = Serial_ReadSingle(&in);
 		}
-
 		int key = keyGetter();
 		//GetKey(&key);
 		
@@ -77,76 +137,16 @@ int main() {
 			case KEY_PRGM_F1:
 			{
 				
-				Bdisp_Fill_VRAM(COLOR_WHITE, 1);
-				locate_OS(1,1);
+				clearScreen();
 				char message[50];
 				memset(message, 0, sizeof message);
-				int i = 0;
-				int typeKey;
-				GetKey(&typeKey);
 				
-				while(typeKey != KEY_CTRL_F2 && i < 50){
-					
-					switch(typeKey){
-						case KEY_CTRL_F3:
-							if(GetSetupSetting((unsigned int)0x14) == 0x88 ){
-								SetSetupSetting((unsigned int)0x14, 0x84);
-							}
-							if(GetSetupSetting((unsigned int)0x14) == 0x84 ){
-								SetSetupSetting((unsigned int)0x14, 0x88);
-							}
-							break;
-						
-						case KEY_CTRL_F4:
-							{
-								char entree = CharacterSelectDialog();
-								if(entree != 0){
-									message[i] = entree;
-									i++;
-								}
-								break;
-							}
-						case KEY_CTRL_LEFT:
-							message[i] = '\0';
-							i--;
-							break;
-
-						case KEY_CTRL_VARS:
-							message[i] = ':';
-							i++;
-							break;
-						
-						case KEY_CTRL_OPTN:
-							message[i] = '+';
-							i++;
-							break;
-						
-						default:
-						
-							if(typeKey != KEY_CTRL_F1 && typeKey != KEY_CTRL_ALPHA && typeKey != KEY_CTRL_SHIFT){
-						
-								message[i] = typeKey;
-								i++;
-							
-							}
-							break;
-							
-					}
-					Bdisp_Fill_VRAM(COLOR_WHITE, 1);
-					char buffer[52];
-					strcpy(buffer,"  ");
-					strcpy(buffer+2,message);
-					
-					PrintXY( 1, 2, buffer, TEXT_MODE_NORMAL, TEXT_COLOR_BLACK);
-					
-					GetKey(&typeKey);
-					
-				}
-				i++;
-				message[i] = '\n';
+				int msgSize = inputTxt(message);
+				msgSize++;
+				message[msgSize] = '\n';
 				const unsigned char * messageN = message;
 				Serial_ClearTX();
-				Serial_Write(messageN, i);
+				Serial_Write(messageN, msgSize);
 				memset(message, 0, sizeof message);
 				Bdisp_Fill_VRAM(COLOR_WHITE, 1);
 				locate_OS(1,1);
@@ -160,15 +160,22 @@ int main() {
 					GetKey(&p);
 				}
 				break;
+			case KEY_PRGM_F2:
+				Serial_Close(1);
+				openSerial(5);
+				baudRate = 9600;
+				break;
+			case KEY_PRGM_F3:
+				Serial_Close(1);
+				openSerial(9);
+				baudRate = 115200;
+				break;
 			
 			default :  
 				//Serial_WriteSingle((unsigned char)key);
-				break;
-			
+				break;	
 		}
-
 		Bdisp_PutDisp_DD();
 	}
- 
 	return 0;
 }
